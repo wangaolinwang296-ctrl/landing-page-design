@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>FOOTY 足球交友</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 :root{--green:#07C160;--bg:#EDEDED;--card:#fff;--text:#191919;--muted:#888;--line:#E5E5E5}
@@ -12,7 +13,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei
 header{position:sticky;top:0;z-index:10;background:#fff;border-bottom:1px solid var(--line);padding:12px 16px;display:flex;align-items:center;justify-content:space-between}
 header h1{font-size:22px;letter-spacing:2px}
 header h1 span{color:var(--green)}
-.sync{font-size:11px;color:#B26A00;background:#FFF7E0;border:1px solid #FFE08A;border-radius:20px;padding:4px 8px}
+.sync{font-size:11px;color:#0B7A43;background:#E6F7EE;border:1px solid #9BE3BC;border-radius:20px;padding:4px 8px}
 main{padding:12px 12px 8px}
 .card{background:var(--card);border-radius:12px;padding:14px;margin-bottom:12px}
 h2{font-size:16px;margin-bottom:10px}
@@ -71,6 +72,10 @@ nav .ic{font-size:22px;line-height:1}
 .badge{position:absolute;top:2px;left:calc(50% + 4px);background:#FA5151;color:#fff;font-size:10px;min-width:16px;height:16px;border-radius:8px;display:flex;align-items:center;justify-content:center;padding:0 4px}
 .hidden{display:none!important}
 .note{background:#FFF7E0;border:1px solid #FFE08A;border-radius:8px;padding:10px;font-size:13px;line-height:1.6;color:#7A5200;margin-bottom:12px}
+.note-green{background:#E6F7EE;border:1px solid #9BE3BC;border-radius:8px;padding:10px;font-size:13px;line-height:1.6;color:#0B7A43;margin-bottom:12px}
+.authmsg{border-radius:8px;padding:10px;font-size:13px;line-height:1.6;margin-bottom:10px}
+.authmsg.err{background:#FDECEA;color:#B3261E}
+.authmsg.ok{background:#E6F7EE;color:#0B7A43}
 .danger{color:#E64340;background:none;padding:0;font-size:13px;text-align:left}
 .tabs-auth{display:flex;gap:8px;margin-bottom:6px}
 .tabs-auth button{flex:1;background:#F0F0F0;color:#333}
@@ -79,9 +84,9 @@ nav .ic{font-size:22px;line-height:1}
 </head>
 <body>
 <div class="app">
-<header><h1>FOOTY<span> · 足球交友</span></h1><span class="sync" id="syncPill">本机保存版</span></header>
-<main id="main"></main>
-<nav id="nav">
+<header><h1>FOOTY<span> · 足球交友</span></h1><span class="sync" id="syncPill">☁️ 已同步 · Supabase</span></header>
+<main id="main"><div class="card"><p class="muted">加载中…</p></div></main>
+<nav id="nav" class="hidden">
   <button data-tab="messages"><span class="ic">💬</span>消息<span class="badge hidden" id="badgeMsg">0</span></button>
   <button data-tab="friends"><span class="ic">👥</span>球友</button>
   <button data-tab="discover"><span class="ic">🧭</span>发现</button>
@@ -90,228 +95,334 @@ nav .ic{font-size:22px;line-height:1}
 </div>
 <script>
 "use strict";
-var LS_USERS="footy_users_v1", LS_DATA="footy_data_v1", LS_SESSION="footy_session_v1";
-function load(k,def){try{var v=localStorage.getItem(k);return v?JSON.parse(v):def}catch(e){return def}}
-function save(k,v){localStorage.setItem(k,JSON.stringify(v))}
-function uid(){return "id_"+Date.now().toString(36)+Math.random().toString(36).slice(2,8)}
+/* FOOTY 接 Supabase 免费数据库（项目 footy，新加坡）。
+   账号走 Supabase Auth 真验证：注册发验证邮件，点链接后才能登录；
+   登录密码和服务器核对，没注册过、随便编的邮箱都进不去。
+   主页、动态、评论、点赞、球友、打招呼、消息全部存在 Supabase 六张表里。 */
+var SB_URL="https://mjobujylsskecudrfqrj.supabase.co";
+var SB_ANON_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1qb2J1anlsc3NrZWN1ZHJmcXJqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQwNjUwNDUsImV4cCI6MjEwOTY0MTA0NX0.IkZhKB0DNDM3aN0d3KBze6EtAZqSrgD-60OXQ5N4cdw";
+var sb=null;
+if(window.supabase&&window.supabase.createClient){sb=window.supabase.createClient(SB_URL,SB_ANON_KEY);}
+function uid(){try{return crypto.randomUUID()}catch(e){return "id_"+Date.now().toString(36)+Math.random().toString(36).slice(2,8)}}
 function esc(s){return String(s==null?"":s).replace(/[&<>"']/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]})}
-function hash(pw){var h=0;for(var i=0;i<pw.length;i++){h=((h<<5)-h+pw.charCodeAt(i))|0}return "h"+(h>>>0).toString(16)+"_"+pw.length}
-function nowStr(ts){var d=new Date(ts);return (d.getMonth()+1)+"月"+d.getDate()+"日 "+String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0")}
-function getUsers(){return load(LS_USERS,[])}
-function getData(){var d=load(LS_DATA,null);if(!d){d={posts:[],comments:[],likes:[],friends:[],greetings:[]};save(LS_DATA,d)}return d}
-function getSession(){return load(LS_SESSION,null)}
-function setSession(id){if(id)save(LS_SESSION,{userId:id});else localStorage.removeItem(LS_SESSION)}
-function me(){var s=getSession();if(!s)return null;var u=getUsers().find(function(x){return x.id===s.userId});return u||null}
+function nowStr(ts){var d=new Date(ts);if(isNaN(d))return "";return (d.getMonth()+1)+"月"+d.getDate()+"日 "+String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0")}
 function avatarChar(name){return (name||"球").trim().charAt(0)||"球"}
+function seenKey(){return sbUser?("footy_seen_"+sbUser.id):"footy_seen_none"}
+function getSeen(){try{return Number(localStorage.getItem(seenKey())||0)}catch(e){return 0}}
+function setSeen(v){try{localStorage.setItem(seenKey(),String(v))}catch(e){}}
+
+var sbUser=null, myProfile=null;
+var D={profiles:[],posts:[],comments:[],likes:[],friends:[],greetings:[]};
+var dataLoaded=false, dataError="";
+var tab="discover", discoverCat="全部", friendQ="", friendCity="全部", friendPos="全部";
+
+function me(){return myProfile}
+function profileById(id){return D.profiles.find(function(p){return p.id===id})||null}
 function unreadCount(){
-  var m=me();if(!m)return 0;var d=getData();var seen=m.messagesSeenAt||0;
-  var n=0;
-  d.greetings.forEach(function(g){if(g.toUserId===m.id&&g.createdAt>seen)n++});
-  var myPostIds=d.posts.filter(function(p){return p.userId===m.id}).map(function(p){return p.id});
-  d.likes.forEach(function(l){if(myPostIds.indexOf(l.postId)>=0&&l.userId!==m.id&&l.createdAt>seen)n++});
-  d.comments.forEach(function(c){if(myPostIds.indexOf(c.postId)>=0&&c.userId!==m.id&&c.createdAt>seen)n++});
+  if(!myProfile)return 0;var seen=getSeen();var n=0;
+  D.greetings.forEach(function(g){if(g.to_id===myProfile.id&&!g.read)n++});
+  var myPostIds=D.posts.filter(function(p){return p.author_id===myProfile.id}).map(function(p){return p.id});
+  D.likes.forEach(function(l){if(myPostIds.indexOf(l.post_id)>=0&&l.user_id!==myProfile.id&&new Date(l.created_at).getTime()>seen)n++});
+  D.comments.forEach(function(c){if(myPostIds.indexOf(c.post_id)>=0&&c.author_id!==myProfile.id&&new Date(c.created_at).getTime()>seen)n++});
   return n;
 }
-function updateBadge(){var n=unreadCount();var b=document.getElementById("badgeMsg");if(n>0){b.textContent=n>99?"99+":n;b.classList.remove("hidden")}else{b.classList.add("hidden")}}
-var tab="discover", discoverCat="全部", friendQ="", friendCity="全部", friendPos="全部";
+function updateBadge(){var n=unreadCount();var b=document.getElementById("badgeMsg");if(!b)return;if(n>0){b.textContent=n>99?"99+":n;b.classList.remove("hidden")}else{b.classList.add("hidden")}}
 function setTab(t){tab=t;render();window.scrollTo(0,0)}
 document.querySelectorAll("#nav button").forEach(function(b){b.addEventListener("click",function(){setTab(b.dataset.tab)})});
-</script>
-<script>
+
+async function loadAll(){
+  var r=await Promise.all([
+    sb.from("profiles").select("*").order("created_at",{ascending:true}),
+    sb.from("posts").select("*").order("created_at",{ascending:false}),
+    sb.from("comments").select("*").order("created_at",{ascending:true}),
+    sb.from("likes").select("*"),
+    sb.from("friends").select("*"),
+    sb.from("greetings").select("*").order("created_at",{ascending:false})
+  ]);
+  var names=["profiles","posts","comments","likes","friends","greetings"];
+  for(var i=0;i<r.length;i++){
+    if(r[i].error){dataError="读取"+names[i]+"失败："+r[i].error.message;throw new Error(dataError)}
+    D[names[i]]=r[i].data||[];
+  }
+  dataLoaded=true;dataError="";
+}
+async function ensureProfile(){
+  var res=await sb.from("profiles").select("*").eq("id",sbUser.id).maybeSingle();
+  if(res.error)throw new Error("读取主页失败："+res.error.message);
+  if(res.data){myProfile=res.data;return}
+  var nick=(sbUser.user_metadata&&sbUser.user_metadata.nickname)||"球友";
+  var ins=await sb.from("profiles").insert({id:sbUser.id,nickname:nick,city:"",position:"",level:"",team:"",bio:"",style:"",free_time:""}).select().single();
+  if(ins.error)throw new Error("创建主页失败："+ins.error.message);
+  myProfile=ins.data;
+}
+function authErrText(err){
+  var m=(err&&err.message)||"出错了";
+  if(/email not confirmed/i.test(m))return "这个邮箱还没验证：请先去邮箱点验证链接，验证完成后再回来登录。";
+  if(/invalid login credentials/i.test(m))return "邮箱或密码不对。没注册过的邮箱、随便编的邮箱都进不去，请检查后重试，或先注册。";
+  if(/user already registered/i.test(m))return "这个邮箱已经注册过，请直接登录。";
+  if(/email rate limit|over_email_send_rate_limit|rate limit/i.test(m))return "验证邮件发送太频繁了（免费版有限额），请过一会儿再试。";
+  if(/invalid.*email/i.test(m))return "邮箱格式不对，请填一个真实能收到邮件的邮箱。";
+  if(/password/i.test(m)&&/short|least|6/i.test(m))return "密码至少 6 位。";
+  return "出错了："+m;
+}
 function viewAuth(){
-var mode=window._authMode||"register";
-return '<div class="card"><h2>欢迎来到 FOOTY</h2><p class="muted">注册一个账号，填好主页，发第一条约球动态，球友就能看到你。当前是本机保存版，账号和动态只保存在这台设备/浏览器里。</p>'
-+'<div class="tabs-auth"><button class="'+(mode==="register"?"on":"")+'" onclick="window._authMode=\'register\';render()">注册</button><button class="'+(mode==="login"?"on":"")+'" onclick="window._authMode=\'login\';render()">登录</button></div>'
-+(mode==="register"
-? '<label>昵称</label><input id="a_nick" placeholder="比如：阿杰"><label>邮箱（登录用）</label><input id="a_email" type="email" placeholder="you@example.com"><label>密码（至少 4 位）</label><input id="a_pw" type="password" placeholder="至少 4 位"><div style="height:12px"></div><button class="btn-primary" onclick="doRegister()">注册并进入</button>'
-: '<label>邮箱</label><input id="a_email" type="email" placeholder="注册时用的邮箱"><label>密码</label><input id="a_pw" type="password"><div style="height:12px"></div><button class="btn-primary" onclick="doLogin()">登录</button>')
-+'<p class="muted" style="margin-top:12px">提示：演示用的本地账号，密码只做简单处理，不要用你真实重要的密码。换手机或换浏览器需要重新注册。</p></div>'
-+'<div class="card"><h2>FOOTY 能做什么</h2><p class="muted">· 我的主页：昵称、城市、位置、水平、主队、简介、踢法、空闲时间<br>· 发现：按约球 / 日常 / 观赛发动态，点赞、评论<br>· 球友：搜索、按城市和位置筛选、加球友、打招呼<br>· 消息：收到的打招呼和互动，未读有红点</p></div>';
-}
-function doRegister(){
-var nick=document.getElementById("a_nick").value.trim();
-var email=document.getElementById("a_email").value.trim().toLowerCase();
-var pw=document.getElementById("a_pw").value;
-if(!nick){alert("请填昵称");return}
-if(!email||email.indexOf("@")<0){alert("请填正确的邮箱");return}
-if(!pw||pw.length<4){alert("密码至少 4 位");return}
-var users=getUsers();
-if(users.some(function(u){return u.email===email})){alert("这个邮箱已经注册过，请直接登录");window._authMode="login";render();return}
-var u={id:uid(),nickname:nick,email:email,pw:hash(pw),city:"",position:"",level:"",team:"",bio:"",style:"",availability:"",messagesSeenAt:Date.now(),createdAt:Date.now()};
-users.push(u);save(LS_USERS,users);setSession(u.id);tab="me";render();
-}
-function doLogin(){
-var email=document.getElementById("a_email").value.trim().toLowerCase();
-var pw=document.getElementById("a_pw").value;
-var u=getUsers().find(function(x){return x.email===email});
-if(!u){alert("没找到这个邮箱的账号，请先注册");return}
-if(u.pw!==hash(pw)){alert("密码不对");return}
-setSession(u.id);tab="discover";render();
-}
-function viewDiscover(){
-var m=me();var d=getData();
-var cats=["全部","约球","日常","观赛"];
-var html='<div class="note">本机保存版：你发的动态只保存在这台设备/浏览器里，换手机或别人打开看不到。接上免费数据库（Supabase / Firebase）后才能多人同步。</div>';
-html+='<div class="card"><h2>发动态</h2><div class="chips">'+cats.map(function(c){return '<span class="chip'+(discoverCat===c?" on":"")+'" onclick="discoverCat=\''+c+'\';render()">'+c+'</span>'}).join("")+'</div>'
-+'<textarea id="p_text" placeholder="想约球？写时间、地点、缺几个人……"></textarea>'
-+'<div class="row" style="margin-top:8px"><select id="p_cat"><option>约球</option><option>日常</option><option>观赛</option></select><button class="btn-primary" onclick="doPost()">发布</button></div></div>';
-var posts=d.posts.slice().sort(function(a,b){return b.createdAt-a.createdAt});
-if(discoverCat!=="全部")posts=posts.filter(function(p){return p.category===discoverCat});
-html+='<div class="card"><h2>动态广场</h2>';
-if(!posts.length){html+='<div class="empty">还没有动态<br>你是第一个来的球友，发一条约球试试</div>'}
-posts.forEach(function(p){
-var u=getUsers().find(function(x){return x.id===p.userId})||{nickname:"球友",city:"",position:"",level:""};
-var likes=d.likes.filter(function(l){return l.postId===p.id});
-var liked=m&&likes.some(function(l){return l.userId===m.id});
-var comments=d.comments.filter(function(c){return c.postId===p.id}).sort(function(a,b){return a.createdAt-b.createdAt});
-html+='<div class="post"><div class="avatar">'+esc(avatarChar(u.nickname))+'</div><div class="post-body">'
-+'<div class="post-head"><span class="post-name">'+esc(u.nickname)+'</span><span class="muted" style="font-size:12px">'+nowStr(p.createdAt)+'</span></div>'
-+'<div class="post-meta">'+esc([u.city,u.position,u.level].filter(Boolean).join(" · ")||"球友")+'</div>'
-+'<div class="post-text"><span class="tag">'+esc(p.category)+'</span>'+esc(p.content)+'</div>'
-+'<div class="actions"><button class="'+(liked?"liked":"")+'" onclick="toggleLike(\''+p.id+'\')">👍 点赞 '+likes.length+'</button><button onclick="document.getElementById(\'c_'+p.id+'\').focus()">💬 评论 '+comments.length+'</button>'
-+(m&&p.userId===m.id?'<button onclick="deletePost(\''+p.id+'\')">删除</button>':"")+'</div>';
-if(comments.length){
-html+='<div class="comments">'+comments.map(function(c){var cu=getUsers().find(function(x){return x.id===c.userId})||{nickname:"球友"};return '<div class="comment"><b>'+esc(cu.nickname)+'</b>'+esc(c.content)+'</div>'}).join("")+'</div>';
-}
-html+='<div class="comment-box"><input id="c_'+p.id+'" placeholder="写评论…"><button class="btn-primary btn-small" onclick="doComment(\''+p.id+'\')">发送</button></div>';
-html+='</div></div>';
-});
-html+='</div>';return html;
-}
-function doPost(){
-var m=me();if(!m)return;var t=document.getElementById("p_text").value.trim();if(!t){alert("先写点内容");return}
-var cat=document.getElementById("p_cat").value;var d=getData();
-d.posts.push({id:uid(),userId:m.id,category:cat,content:t,createdAt:Date.now()});save(LS_DATA,d);render();
-}
-function toggleLike(postId){
-var m=me();if(!m)return;var d=getData();var i=d.likes.findIndex(function(l){return l.postId===postId&&l.userId===m.id});
-if(i>=0)d.likes.splice(i,1);else d.likes.push({id:uid(),postId:postId,userId:m.id,createdAt:Date.now()});
-save(LS_DATA,d);render();
-}
-function doComment(postId){
-var m=me();if(!m)return;var inp=document.getElementById("c_"+postId);var t=inp.value.trim();if(!t)return;
-var d=getData();d.comments.push({id:uid(),postId:postId,userId:m.id,content:t,createdAt:Date.now()});save(LS_DATA,d);render();
-}
-function deletePost(postId){
-if(!confirm("确定删除这条动态吗？"))return;var d=getData();
-d.posts=d.posts.filter(function(p){return p.id!==postId});
-d.comments=d.comments.filter(function(c){return c.postId!==postId});
-d.likes=d.likes.filter(function(l){return l.postId!==postId});
-save(LS_DATA,d);render();
-}
-function viewFriends(){
-var m=me();var d=getData();var users=getUsers().filter(function(u){return u.id!==m.id});
-var cities=["全部"].concat(Array.from(new Set(users.map(function(u){return u.city}).filter(Boolean))));
-var poss=["全部","前锋","中场","后卫","门将"];
-var list=users.filter(function(u){
-if(friendQ&&u.nickname.indexOf(friendQ)<0&& (u.city||"").indexOf(friendQ)<0&& (u.team||"").indexOf(friendQ)<0)return false;
-if(friendCity!=="全部"&&u.city!==friendCity)return false;
-if(friendPos!=="全部"&&u.position!==friendPos)return false;
-return true;
-});
-var html='<div class="card"><h2>找球友</h2><input id="f_q" placeholder="搜昵称 / 城市 / 主队" value="'+esc(friendQ)+'" oninput="friendQ=this.value;renderFriendsOnly()">'
-+'<div class="row" style="margin-top:8px"><select id="f_city" onchange="friendCity=this.value;render()">'+cities.map(function(c){return '<option'+(friendCity===c?" selected":"")+'>'+esc(c)+'</option>'}).join("")+'</select>'
-+'<select id="f_pos" onchange="friendPos=this.value;render()">'+poss.map(function(c){return '<option'+(friendPos===c?" selected":"")+'>'+esc(c)+'</option>'}).join("")+'</select></div>'
-+'<p class="muted" style="margin-top:8px">共 '+list.length+' 位球友（不含你自己）。本机保存版只显示在这台设备上注册过的账号。</p></div>';
-html+='<div class="card"><h2>球友圈</h2>';
-if(!list.length){html+='<div class="empty">还没找到球友<br>先去“发现”发一条约球动态，等别人注册后这里就会出现</div>'}
-list.forEach(function(u){
-var rel=d.friends.find(function(f){return f.fromUserId===m.id&&f.toUserId===u.id});
-var greeted=d.greetings.some(function(g){return g.fromUserId===m.id&&g.toUserId===u.id});
-html+='<div class="friend"><div class="avatar">'+esc(avatarChar(u.nickname))+'</div><div class="friend-info">'
-+'<div class="friend-name">'+esc(u.nickname)+'</div>'
-+'<div class="friend-meta">'+esc([u.city,u.position,u.level,u.team].filter(Boolean).join(" · ")||"还没填资料")+'<br>'+esc(u.bio||"这个人很神秘，还没写简介。")+'</div>'
-+'<div class="friend-actions"><select onchange="setFriendStatus(\''+u.id+'\',this.value)">'
-+["想认识","已打招呼","常一起踢"].map(function(s){return '<option'+(rel&&rel.status===s?" selected":"")+'>'+s+'</option>'}).join("")+'</select>'
-+'<button class="btn-primary btn-small" onclick="greet(\''+u.id+'\')">'+(greeted?"已打招呼 ✓":"打招呼")+'</button>'
-+'<button class="btn-ghost btn-small" onclick="viewProfile(\''+u.id+'\')">看主页</button></div></div></div>';
-});
-html+='</div>';return html;
-}
-function renderFriendsOnly(){var v=document.getElementById("f_q");var pos=v?v.selectionStart:0;render();var nv=document.getElementById("f_q");if(nv){nv.focus();nv.setSelectionRange(pos,pos)}}
-function setFriendStatus(toId,status){
-var m=me();var d=getData();var f=d.friends.find(function(x){return x.fromUserId===m.id&&x.toUserId===toId});
-if(f)f.status=status;else d.friends.push({id:uid(),fromUserId:m.id,toUserId:toId,status:status,createdAt:Date.now()});
-save(LS_DATA,d);render();
-}
-function greet(toId){
-var m=me();var d=getData();
-if(d.greetings.some(function(g){return g.fromUserId===m.id&&g.toUserId===toId})){alert("已经打过招呼了，等对方回复吧");return}
-d.greetings.push({id:uid(),fromUserId:m.id,toUserId:toId,text:"你好，我是 "+m.nickname+"，有空一起踢球吗？",createdAt:Date.now()});
-var f=d.friends.find(function(x){return x.fromUserId===m.id&&x.toUserId===toId});
-if(f)f.status="已打招呼";else d.friends.push({id:uid(),fromUserId:m.id,toUserId:toId,status:"已打招呼",createdAt:Date.now()});
-save(LS_DATA,d);alert("已打招呼，对方在“消息”里能看到");render();
-}
-function viewProfile(userId){
-var u=getUsers().find(function(x){return x.id===userId});if(!u)return;
-var d=getData();var posts=d.posts.filter(function(p){return p.userId===userId}).sort(function(a,b){return b.createdAt-a.createdAt});
-alert("\n城市："+(u.city||"未填")+"\n位置："+(u.position||"未填")+"\n水平："+(u.level||"未填")+"\n主队："+(u.team||"未填")+"\n简介："+(u.bio||"未填")+"\n踢法："+(u.style||"未填")+"\n常有空："+(u.availability||"未填")+"\n动态："+posts.length+" 条");
-}
-function viewMessages(){
-var m=me();var d=getData();
-var items=[];
-d.greetings.forEach(function(g){if(g.toUserId===m.id){var f=getUsers().find(function(x){return x.id===g.fromUserId})||{nickname:"球友"};items.push({ts:g.createdAt,who:f.nickname,text:g.text,kind:"打招呼"})}});
-var myPostIds=d.posts.filter(function(p){return p.userId===m.id}).map(function(p){return p.id});
-d.likes.forEach(function(l){if(myPostIds.indexOf(l.postId)>=0&&l.userId!==m.id){var u=getUsers().find(function(x){return x.id===l.userId})||{nickname:"球友"};items.push({ts:l.createdAt,who:u.nickname,text:"给你的动态点了赞",kind:"点赞"})}});
-d.comments.forEach(function(c){if(myPostIds.indexOf(c.postId)>=0&&c.userId!==m.id){var u=getUsers().find(function(x){return x.id===c.userId})||{nickname:"球友"};items.push({ts:c.createdAt,who:u.nickname,text:"评论了你的动态："+c.content,kind:"评论"})}});
-items.sort(function(a,b){return b.ts-a.ts});
-var html='<div class="card"><h2>消息</h2><button class="btn-ghost btn-small" onclick="markRead()">全部标为已读</button>';
-if(!items.length){html+='<div class="empty">还没有消息<br>去“球友”里打个招呼，或去“发现”发动态等别人互动</div>'}
-items.forEach(function(it){
-var unread=(m.messagesSeenAt||0)<it.ts;
-html+='<div class="msg"><div class="avatar">'+esc(avatarChar(it.who))+'</div><div class="post-body"><div class="post-head"><span class="post-name">'+esc(it.who)+(unread?'<span class="dot"></span>':"")+'</span><span class="muted" style="font-size:12px">'+nowStr(it.ts)+'</span></div><div class="post-meta">'+esc(it.kind)+'</div><div class="post-text" style="margin:4px 0 0">'+esc(it.text)+'</div></div></div>';
-});
-html+='</div>';return html;
-}
-function markRead(){
-var users=getUsers();var m=me();var u=users.find(function(x){return x.id===m.id});if(u){u.messagesSeenAt=Date.now();save(LS_USERS,users)}render();
-}
-</script>
-<script>
-function viewMe(){
-  var m=me();
-  var html='<div class="card"><div class="profile-top"><div class="avatar" style="width:64px;height:64px;font-size:28px">'+esc(avatarChar(m.nickname))+'</div><div><div class="name">'+esc(m.nickname)+'</div><div class="muted">'+esc(m.email)+'</div></div></div>'
-  +'<div class="kv"><b>城市</b><span>'+esc(m.city||"未填")+'</span><b>位置</b><span>'+esc(m.position||"未填")+'</span><b>水平</b><span>'+esc(m.level||"未填")+'</span><b>主队</b><span>'+esc(m.team||"未填")+'</span><b>简介</b><span>'+esc(m.bio||"未填")+'</span><b>踢法</b><span>'+esc(m.style||"未填")+'</span><b>常有空</b><span>'+esc(m.availability||"未填")+'</span></div></div>';
-  html+='<div class="card"><h2>编辑我的主页</h2>'
-  +'<label>昵称</label><input id="e_nick" value="'+esc(m.nickname)+'">'
-  +'<label>城市</label><input id="e_city" placeholder="比如：西安" value="'+esc(m.city)+'">'
-  +'<div class="row"><div><label>位置</label><select id="e_pos">'+["","前锋","中场","后卫","门将"].map(function(p){return '<option value="'+p+'"'+(m.position===p?" selected":"")+'>'+(p||"请选择")+'</option>'}).join("")+'</select></div>'
-  +'<div><label>水平</label><select id="e_level">'+["","新手","业余","经常踢","很强"].map(function(p){return '<option value="'+p+'"'+(m.level===p?" selected":"")+'>'+(p||"请选择")+'</option>'}).join("")+'</select></div></div>'
-  +'<label>主队</label><input id="e_team" placeholder="比如：皇马 / 国足" value="'+esc(m.team)+'">'
-  +'<label>个人简介</label><textarea id="e_bio" placeholder="介绍一下自己">'+esc(m.bio)+'</textarea>'
-  +'<label>踢法</label><input id="e_style" placeholder="比如：爱传球、能跑" value="'+esc(m.style)+'">'
-  +'<label>常有空时间</label><input id="e_avail" placeholder="比如：周末下午" value="'+esc(m.availability)+'">'
-  +'<div style="height:12px"></div><button class="btn-primary" onclick="saveProfile()">保存主页</button></div>';
-  html+='<div class="card"><h2>账号与同步</h2><div class="note">当前是本机保存版：账号、主页和动态只保存在这台设备/浏览器里。换手机、清浏览器数据会丢，别人打开也看不到你。<br><br>多人同步需要接一个免费数据库（Supabase 或 Firebase）：在它们的官网用 Google 账号免费建项目，启用邮箱登录，再建 profiles / posts / comments / likes / friends / greetings 六张表，把项目地址和 Key 填进这个应用，就能实现别人注册后互相看到。Replit / Lovable 那两条路目前都卡住了（一个没额度，一个部署 404），所以先用这个能打开的版本顶着。</div>'
-  +'<button class="btn-ghost" onclick="logout()">退出登录</button> <button class="danger" onclick="clearAll()">清空本机所有数据</button></div>';
+  var mode=window._authMode||"register";
+  var msg=window._authMsg||null;
+  var html='<div class="card"><h2>欢迎来到 FOOTY</h2><p class="muted">注册一个账号，填好主页，发第一条约球动态，球友就能看到你。账号和数据都存在云端数据库里，换手机登录也能看到。</p>';
+  if(!sb)html+='<div class="authmsg err">网络组件没加载出来（Supabase 库加载失败），请检查网络后刷新页面重试。</div>';
+  if(msg)html+='<div class="authmsg '+msg.kind+'">'+esc(msg.text)+'</div>';
+  html+='<div class="tabs-auth"><button class="'+(mode==="register"?"on":"")+'" onclick="window._authMode=\'register\';window._authMsg=null;render()">注册</button><button class="'+(mode==="login"?"on":"")+'" onclick="window._authMode=\'login\';window._authMsg=null;render()">登录</button></div>';
+  if(mode==="register"){
+    html+='<label>昵称</label><input id="a_nick" placeholder="比如：阿杰"><label>邮箱（登录用，要能收到验证邮件）</label><input id="a_email" type="email" placeholder="you@example.com"><label>密码（至少 6 位）</label><input id="a_pw" type="password" placeholder="至少 6 位"><div style="height:12px"></div><button class="btn-primary" onclick="doRegister()">注册并发送验证邮件</button>'
+    +'<p class="muted" style="margin-top:12px">注册后会往这个邮箱发一封验证邮件，必须点了邮件里的验证链接才能登录。随便编的邮箱收不到邮件，就进不去。不要用真实重要账号的密码。</p>';
+  }else{
+    html+='<label>邮箱</label><input id="a_email" type="email" placeholder="注册时用的邮箱"><label>密码</label><input id="a_pw" type="password"><div style="height:12px"></div><button class="btn-primary" onclick="doLogin()">登录</button>'
+    +'<p class="muted" style="margin-top:12px">登录时密码和服务器核对，没注册过的邮箱、密码不对都进不去。如果刚注册完还没点验证邮件，请先去邮箱点链接。</p>';
+  }
+  html+='</div><div class="card"><h2>FOOTY 能做什么</h2><p class="muted">· 我的主页：昵称、城市、位置、水平、主队、简介、踢法、空闲时间<br>· 发现：按约球 / 日常 / 观赛发动态，点赞、评论<br>· 球友：搜索、按城市和位置筛选、加球友、打招呼<br>· 消息：收到的打招呼和互动，未读有红点</p></div>';
   return html;
 }
-function saveProfile(){
-  var users=getUsers();var m=me();var u=users.find(function(x){return x.id===m.id});if(!u)return;
-  u.nickname=document.getElementById("e_nick").value.trim()||u.nickname;
-  u.city=document.getElementById("e_city").value.trim();
-  u.position=document.getElementById("e_pos").value;
-  u.level=document.getElementById("e_level").value;
-  u.team=document.getElementById("e_team").value.trim();
-  u.bio=document.getElementById("e_bio").value.trim();
-  u.style=document.getElementById("e_style").value.trim();
-  u.availability=document.getElementById("e_avail").value.trim();
-  save(LS_USERS,users);alert("主页已保存");render();
+async function doRegister(){
+  if(!sb){alert("网络组件没加载出来，请刷新重试");return}
+  var nick=document.getElementById("a_nick").value.trim();
+  var email=document.getElementById("a_email").value.trim().toLowerCase();
+  var pw=document.getElementById("a_pw").value;
+  if(!nick){alert("请填昵称");return}
+  if(!email||email.indexOf("@")<0){alert("请填正确的邮箱");return}
+  if(!pw||pw.length<6){alert("密码至少 6 位");return}
+  var res=await sb.auth.signUp({email:email,password:pw,options:{data:{nickname:nick}}});
+  if(res.error){window._authMsg={kind:"err",text:authErrText(res.error)};render();return}
+  if(res.data&&res.data.session){sbUser=res.data.session.user;await afterLogin();return}
+  window._authMode="login";
+  window._authMsg={kind:"ok",text:"验证邮件已发到 "+email+"，请去邮箱点里面的验证链接，验证完成后再回来登录。如果没收到，请检查垃圾邮件，或过一会儿再注册一次。"};
+  render();
 }
-function logout(){setSession(null);tab="discover";render()}
-function clearAll(){if(!confirm("确定要清空这台设备上 FOOTY 的所有账号和动态吗？这个操作不能恢复。"))return;localStorage.removeItem(LS_USERS);localStorage.removeItem(LS_DATA);localStorage.removeItem(LS_SESSION);tab="discover";render()}
-function render(){
-  var main=document.getElementById("main");var m=me();
+async function doLogin(){
+  if(!sb){alert("网络组件没加载出来，请刷新重试");return}
+  var email=document.getElementById("a_email").value.trim().toLowerCase();
+  var pw=document.getElementById("a_pw").value;
+  if(!email||!pw){alert("请填邮箱和密码");return}
+  var res=await sb.auth.signInWithPassword({email:email,password:pw});
+  if(res.error){window._authMsg={kind:"err",text:authErrText(res.error)};render();return}
+  sbUser=res.data.user;await afterLogin();
+}
+async function afterLogin(){
+  window._authMsg=null;
+  try{await ensureProfile();await loadAll();}
+  catch(e){window._authMsg={kind:"err",text:e.message};sbUser=null;myProfile=null;render();return}
+  tab="discover";render();
+}
+async function logout(){if(sb){await sb.auth.signOut()}sbUser=null;myProfile=null;dataLoaded=false;tab="discover";render()}
+
+function viewDiscover(){
+  var m=me();
+  var cats=["全部","约球","日常","观赛"];
+  var html='<div class="note-green">已同步到云端数据库：你发的动态保存在服务器上，换手机登录、别的球友打开都能看到。</div>';
+  html+='<div class="card"><h2>发动态</h2><div class="chips">'+cats.map(function(c){return '<span class="chip'+(discoverCat===c?" on":"")+'" onclick="discoverCat=\''+c+'\';render()">'+c+'</span>'}).join("")+'</div>'
+  +'<textarea id="p_text" placeholder="想约球？写时间、地点、缺几个人……"></textarea>'
+  +'<div class="row" style="margin-top:8px"><select id="p_cat"><option>约球</option><option>日常</option><option>观赛</option></select><button class="btn-primary" onclick="doPost()">发布</button></div></div>';
+  var posts=D.posts.slice();
+  if(discoverCat!=="全部")posts=posts.filter(function(p){return p.category===discoverCat});
+  html+='<div class="card"><h2>动态广场</h2>';
+  if(!posts.length){html+='<div class="empty">还没有动态<br>你是第一个来的球友，发一条约球试试</div>'}
+  posts.forEach(function(p){
+    var u=profileById(p.author_id)||{nickname:p.author_nickname||"球友",city:"",position:"",level:""};
+    var likes=D.likes.filter(function(l){return l.post_id===p.id});
+    var liked=m&&likes.some(function(l){return l.user_id===m.id});
+    var comments=D.comments.filter(function(c){return c.post_id===p.id});
+    html+='<div class="post"><div class="avatar">'+esc(avatarChar(u.nickname))+'</div><div class="post-body">'
+    +'<div class="post-head"><span class="post-name">'+esc(u.nickname)+'</span><span class="muted" style="font-size:12px">'+nowStr(p.created_at)+'</span></div>'
+    +'<div class="post-meta">'+esc([u.city,u.position,u.level].filter(Boolean).join(" · ")||"球友")+'</div>'
+    +'<div class="post-text"><span class="tag">'+esc(p.category)+'</span>'+esc(p.content)+'</div>'
+    +'<div class="actions"><button class="'+(liked?"liked":"")+'" onclick="toggleLike(\''+p.id+'\')">👍 点赞 '+likes.length+'</button><button onclick="document.getElementById(\'c_'+p.id+'\').focus()">💬 评论 '+comments.length+'</button>'
+    +(m&&p.author_id===m.id?'<button onclick="deletePost(\''+p.id+'\')">删除</button>':"")+'</div>';
+    if(comments.length){
+      html+='<div class="comments">'+comments.map(function(c){var cu=profileById(c.author_id)||{nickname:c.author_nickname||"球友"};return '<div class="comment"><b>'+esc(cu.nickname)+'</b>'+esc(c.content)+'</div>'}).join("")+'</div>';
+    }
+    html+='<div class="comment-box"><input id="c_'+p.id+'" placeholder="写评论…"><button class="btn-primary btn-small" onclick="doComment(\''+p.id+'\')">发送</button></div>';
+    html+='</div></div>';
+  });
+  html+='</div>';return html;
+}
+async function doPost(){
+  var m=me();if(!m)return;var t=document.getElementById("p_text").value.trim();if(!t){alert("先写点内容");return}
+  var cat=document.getElementById("p_cat").value;
+  var res=await sb.from("posts").insert({id:uid(),author_id:m.id,author_nickname:m.nickname,category:cat,content:t});
+  if(res.error){alert("发布失败："+res.error.message);return}
+  await loadAll();render();
+}
+async function toggleLike(postId){
+  var m=me();if(!m)return;
+  var ex=D.likes.find(function(l){return l.post_id===postId&&l.user_id===m.id});
+  if(ex){await sb.from("likes").delete().eq("id",ex.id)}
+  else{await sb.from("likes").insert({id:uid(),post_id:postId,user_id:m.id})}
+  var n=D.likes.filter(function(l){return l.post_id===postId}).length+(ex?-1:1);
+  await sb.from("posts").update({likes:Math.max(0,n)}).eq("id",postId);
+  await loadAll();render();
+}
+async function doComment(postId){
+  var m=me();if(!m)return;var inp=document.getElementById("c_"+postId);var t=inp.value.trim();if(!t)return;
+  var res=await sb.from("comments").insert({id:uid(),post_id:postId,author_id:m.id,author_nickname:m.nickname,content:t});
+  if(res.error){alert("评论失败："+res.error.message);return}
+  await loadAll();render();
+}
+async function deletePost(postId){
+  if(!confirm("确定删除这条动态吗？"))return;
+  await sb.from("comments").delete().eq("post_id",postId);
+  await sb.from("likes").delete().eq("post_id",postId);
+  var res=await sb.from("posts").delete().eq("id",postId);
+  if(res.error){alert("删除失败："+res.error.message);return}
+  await loadAll();render();
+}
+function viewFriends(){
+  var m=me();var users=D.profiles.filter(function(u){return u.id!==m.id});
+  var cities=["全部"].concat(Array.from(new Set(users.map(function(u){return u.city}).filter(Boolean))));
+  var poss=["全部","前锋","中场","后卫","门将"];
+  var list=users.filter(function(u){
+    if(friendQ&&u.nickname.indexOf(friendQ)<0&&(u.city||"").indexOf(friendQ)<0&&(u.team||"").indexOf(friendQ)<0)return false;
+    if(friendCity!=="全部"&&u.city!==friendCity)return false;
+    if(friendPos!=="全部"&&u.position!==friendPos)return false;
+    return true;
+  });
+  var html='<div class="card"><h2>找球友</h2><input id="f_q" placeholder="搜昵称 / 城市 / 主队" value="'+esc(friendQ)+'" oninput="friendQ=this.value;renderFriendsOnly()">'
+  +'<div class="row" style="margin-top:8px"><select id="f_city" onchange="friendCity=this.value;render()">'+cities.map(function(c){return '<option'+(friendCity===c?" selected":"")+'>'+esc(c)+'</option>'}).join("")+'</select>'
+  +'<select id="f_pos" onchange="friendPos=this.value;render()">'+poss.map(function(c){return '<option'+(friendPos===c?" selected":"")+'>'+esc(c)+'</option>'}).join("")+'</select></div>'
+  +'<p class="muted" style="margin-top:8px">共 '+list.length+' 位球友（不含你自己）。所有球友都来自云端数据库，换手机登录也能看到。</p></div>';
+  html+='<div class="card"><h2>球友圈</h2>';
+  if(!list.length){html+='<div class="empty">还没找到球友<br>先去“发现”发一条约球动态，等别人注册后这里就会出现</div>'}
+  list.forEach(function(u){
+    var rel=D.friends.find(function(f){return f.user_id===m.id&&f.friend_id===u.id});
+    var greeted=D.greetings.some(function(g){return g.from_id===m.id&&g.to_id===u.id});
+    html+='<div class="friend"><div class="avatar">'+esc(avatarChar(u.nickname))+'</div><div class="friend-info">'
+    +'<div class="friend-name">'+esc(u.nickname)+'</div>'
+    +'<div class="friend-meta">'+esc([u.city,u.position,u.level,u.team].filter(Boolean).join(" · ")||"还没填资料")+'<br>'+esc(u.bio||"这个人很神秘，还没写简介。")+'</div>'
+    +'<div class="friend-actions"><select onchange="setFriendStatus(\''+u.id+'\',this.value)">'
+    +["想认识","已打招呼","常一起踢"].map(function(s){return '<option'+(rel&&rel.status===s?" selected":"")+'>'+s+'</option>'}).join("")+'</select>'
+    +'<button class="btn-primary btn-small" onclick="greet(\''+u.id+'\')">'+(greeted?"已打招呼 ✓":"打招呼")+'</button>'
+    +'<button class="btn-ghost btn-small" onclick="viewProfile(\''+u.id+'\')">看主页</button></div></div></div>';
+  });
+  html+='</div>';return html;
+}
+function renderFriendsOnly(){var v=document.getElementById("f_q");var pos=v?v.selectionStart:0;render();var nv=document.getElementById("f_q");if(nv){nv.focus();nv.setSelectionRange(pos,pos)}}
+async function setFriendStatus(toId,status){
+  var m=me();
+  var ex=D.friends.find(function(x){return x.user_id===m.id&&x.friend_id===toId});
+  if(ex){await sb.from("friends").update({status:status}).eq("id",ex.id)}
+  else{await sb.from("friends").insert({id:uid(),user_id:m.id,friend_id:toId,status:status})}
+  await loadAll();render();
+}
+async function greet(toId){
+  var m=me();
+  if(D.greetings.some(function(g){return g.from_id===m.id&&g.to_id===toId})){alert("已经打过招呼了，等对方回复吧");return}
+  var res=await sb.from("greetings").insert({id:uid(),from_id:m.id,from_nickname:m.nickname,to_id:toId,message:"你好，我是 "+m.nickname+"，有空一起踢球吗？",read:false});
+  if(res.error){alert("打招呼失败："+res.error.message);return}
+  var f=D.friends.find(function(x){return x.user_id===m.id&&x.friend_id===toId});
+  if(f){await sb.from("friends").update({status:"已打招呼"}).eq("id",f.id)}
+  else{await sb.from("friends").insert({id:uid(),user_id:m.id,friend_id:toId,status:"已打招呼"})}
+  await loadAll();alert("已打招呼，对方在“消息”里能看到");render();
+}
+function viewProfile(userId){
+  var u=profileById(userId);if(!u)return;
+  var posts=D.posts.filter(function(p){return p.author_id===userId});
+  alert("\n城市："+(u.city||"未填")+"\n位置："+(u.position||"未填")+"\n水平："+(u.level||"未填")+"\n主队："+(u.team||"未填")+"\n简介："+(u.bio||"未填")+"\n踢法："+(u.style||"未填")+"\n常有空："+(u.free_time||"未填")+"\n动态："+posts.length+" 条");
+}
+function viewMessages(){
+  var m=me();
+  var items=[];
+  D.greetings.forEach(function(g){if(g.to_id===m.id){var f=profileById(g.from_id)||{nickname:g.from_nickname||"球友"};items.push({ts:g.created_at,who:f.nickname,text:g.message,kind:"打招呼",unread:!g.read})}});
+  var myPostIds=D.posts.filter(function(p){return p.author_id===m.id}).map(function(p){return p.id});
+  D.likes.forEach(function(l){if(myPostIds.indexOf(l.post_id)>=0&&l.user_id!==m.id){var u=profileById(l.user_id)||{nickname:"球友"};items.push({ts:l.created_at,who:u.nickname,text:"给你的动态点了赞",kind:"点赞",unread:new Date(l.created_at).getTime()>getSeen()})}});
+  D.comments.forEach(function(c){if(myPostIds.indexOf(c.post_id)>=0&&c.author_id!==m.id){var u=profileById(c.author_id)||{nickname:c.author_nickname||"球友"};items.push({ts:c.created_at,who:u.nickname,text:"评论了你的动态："+c.content,kind:"评论",unread:new Date(c.created_at).getTime()>getSeen()})}});
+  items.sort(function(a,b){return new Date(b.ts)-new Date(a.ts)});
+  var html='<div class="card"><h2>消息</h2><button class="btn-ghost btn-small" onclick="markRead()">全部标为已读</button>';
+  if(!items.length){html+='<div class="empty">还没有消息<br>去“球友”里打个招呼，或去“发现”发动态等别人互动</div>'}
+  items.forEach(function(it){
+    html+='<div class="msg"><div class="avatar">'+esc(avatarChar(it.who))+'</div><div class="post-body"><div class="post-head"><span class="post-name">'+esc(it.who)+(it.unread?'<span class="dot"></span>':"")+'</span><span class="muted" style="font-size:12px">'+nowStr(it.ts)+'</span></div><div class="post-meta">'+esc(it.kind)+'</div><div class="post-text" style="margin:4px 0 0">'+esc(it.text)+'</div></div></div>';
+  });
+  html+='</div>';return html;
+}
+async function markRead(){
+  var m=me();if(!m)return;
+  await sb.from("greetings").update({read:true}).eq("to_id",m.id).eq("read",false);
+  setSeen(Date.now());
+  await loadAll();render();
+}
+function viewMe(){
+  var m=me();
+  var email=sbUser?sbUser.email:"";
+  var html='<div class="card"><div class="profile-top"><div class="avatar" style="width:64px;height:64px;font-size:28px">'+esc(avatarChar(m.nickname))+'</div><div><div class="name">'+esc(m.nickname)+'</div><div class="muted">'+esc(email)+'</div></div></div>'
+  +'<div class="kv"><b>城市</b><span>'+esc(m.city||"未填")+'</span><b>位置</b><span>'+esc(m.position||"未填")+'</span><b>水平</b><span>'+esc(m.level||"未填")+'</span><b>主队</b><span>'+esc(m.team||"未填")+'</span><b>简介</b><span>'+esc(m.bio||"未填")+'</span><b>踢法</b><span>'+esc(m.style||"未填")+'</span><b>常有空</b><span>'+esc(m.free_time||"未填")+'</span></div></div>';
+  html+='<div class="card"><h2>编辑我的主页</h2>'
+  +'<label>昵称</label><input id="e_nick" value="'+esc(m.nickname)+'">'
+  +'<label>城市</label><input id="e_city" placeholder="比如：西安" value="'+esc(m.city||"")+'">'
+  +'<div class="row"><div><label>位置</label><select id="e_pos">'+["","前锋","中场","后卫","门将"].map(function(p){return '<option value="'+p+'"'+(m.position===p?" selected":"")+'>'+(p||"请选择")+'</option>'}).join("")+'</select></div>'
+  +'<div><label>水平</label><select id="e_level">'+["","新手","业余","经常踢","很强"].map(function(p){return '<option value="'+p+'"'+(m.level===p?" selected":"")+'>'+(p||"请选择")+'</option>'}).join("")+'</select></div></div>'
+  +'<label>主队</label><input id="e_team" placeholder="比如：皇马 / 国足" value="'+esc(m.team||"")+'">'
+  +'<label>个人简介</label><textarea id="e_bio" placeholder="介绍一下自己">'+esc(m.bio||"")+'</textarea>'
+  +'<label>踢法</label><input id="e_style" placeholder="比如：爱传球、能跑" value="'+esc(m.style||"")+'">'
+  +'<label>常有空时间</label><input id="e_avail" placeholder="比如：周末下午" value="'+esc(m.free_time||"")+'">'
+  +'<div style="height:12px"></div><button class="btn-primary" onclick="saveProfile()">保存主页</button></div>';
+  html+='<div class="card"><h2>账号与同步</h2><div class="note-green">已接 Supabase 免费数据库：账号、主页和动态都存在云端，换手机登录、别的球友打开都能看到。注册要先点邮箱验证链接，登录密码和服务器核对，随便编的邮箱进不去。</div>'
+  +'<button class="btn-ghost" onclick="logout()">退出登录</button></div>';
+  return html;
+}
+async function saveProfile(){
+  var m=me();if(!m)return;
+  var patch={
+    nickname:document.getElementById("e_nick").value.trim()||m.nickname,
+    city:document.getElementById("e_city").value.trim(),
+    position:document.getElementById("e_pos").value,
+    level:document.getElementById("e_level").value,
+    team:document.getElementById("e_team").value.trim(),
+    bio:document.getElementById("e_bio").value.trim(),
+    style:document.getElementById("e_style").value.trim(),
+    free_time:document.getElementById("e_avail").value.trim()
+  };
+  var res=await sb.from("profiles").update(patch).eq("id",m.id).select().single();
+  if(res.error){alert("保存失败："+res.error.message);return}
+  myProfile=res.data;alert("主页已保存");render();
+}
+async function render(){
+  var main=document.getElementById("main");
   document.querySelectorAll("#nav button").forEach(function(b){b.classList.toggle("on",b.dataset.tab===tab)});
-  document.getElementById("nav").classList.toggle("hidden",!m);
+  document.getElementById("nav").classList.toggle("hidden",!sbUser);
+  if(!sbUser){main.innerHTML=viewAuth();return}
+  if(!dataLoaded){
+    main.innerHTML='<div class="card"><p class="muted">加载中…</p></div>';
+    try{await loadAll();}
+    catch(e){main.innerHTML='<div class="card"><p class="muted">加载失败：'+esc(dataError||e.message)+'，请刷新重试。</p></div>';return}
+  }
   updateBadge();
-  if(!m){main.innerHTML=viewAuth();return}
   if(tab==="messages")main.innerHTML=viewMessages();
   else if(tab==="friends")main.innerHTML=viewFriends();
   else if(tab==="me")main.innerHTML=viewMe();
   else main.innerHTML=viewDiscover();
 }
-render();
+function loadFallbackLib(cb){
+  var s=document.createElement("script");
+  s.src="https://unpkg.com/@supabase/supabase-js@2/dist/umd/supabase.min.js";
+  s.onload=function(){if(window.supabase&&window.supabase.createClient){sb=window.supabase.createClient(SB_URL,SB_ANON_KEY)}cb()};
+  s.onerror=function(){cb()};
+  document.head.appendChild(s);
+}
+async function init(){
+  if(!sb){await new Promise(function(res){loadFallbackLib(res)})}
+  if(!sb){render();return}
+  var res=await sb.auth.getSession();
+  if(res.data&&res.data.session){
+    sbUser=res.data.session.user;
+    try{await ensureProfile();await loadAll();}
+    catch(e){sbUser=null;myProfile=null;window._authMsg={kind:"err",text:e.message}}
+  }
+  render();
+  if(sb&&sb.auth&&sb.auth.onAuthStateChange){
+    sb.auth.onAuthStateChange(function(ev,session){
+      if(ev==="SIGNED_IN"&&session){sbUser=session.user;afterLogin();}
+      else if(ev==="SIGNED_OUT"){sbUser=null;myProfile=null;dataLoaded=false;render();}
+    });
+  }
+}
+init();
 </script>
 </body>
 </html>
