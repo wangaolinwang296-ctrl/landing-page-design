@@ -120,7 +120,10 @@ function seenKey(){return sbUser?("footy_seen_"+sbUser.id):"footy_seen_none"}
 function getSeen(){try{return Number(localStorage.getItem(seenKey())||0)}catch(e){return 0}}
 function setSeen(v){try{localStorage.setItem(seenKey(),String(v))}catch(e){}}
 
-var sbUser=null, myProfile=null;
+var sbUser=null, myProfile=null, guest=false;
+function needLogin(){alert("游客只能看看，注册登录后才能用这个功能。")}
+function enterGuest(){guest=true;try{localStorage.setItem("footy_guest","1")}catch(e){} tab="discover";render()}
+function exitGuest(){guest=false;try{localStorage.removeItem("footy_guest")}catch(e){} render()}
 var D={profiles:[],posts:[],comments:[],likes:[],friends:[],greetings:[]};
 var dataLoaded=false, dataError="";
 var tab="discover", discoverCat="全部", friendQ="", friendCity="全部", friendPos="全部";
@@ -189,6 +192,7 @@ function viewAuth(){
     ;
   }
   html+='</div><p class="muted" style="text-align:center;padding:4px 0 8px">主页 · 动态 · 球友 · 消息</p>';
+  html+='<button class="btn-ghost" style="width:100%" onclick="enterGuest()">游客进入看看</button><p class="muted" style="text-align:center;padding:8px 0">不用注册，先看看里面长什么样</p>';
   return html;
 }
 async function doRegister(){
@@ -216,20 +220,22 @@ async function doLogin(){
   sbUser=res.data.user;await afterLogin();
 }
 async function afterLogin(){
+  guest=false;try{localStorage.removeItem("footy_guest")}catch(e){}
   window._authMsg=null;
   try{await ensureProfile();await loadAll();}
   catch(e){window._authMsg={kind:"err",text:e.message};sbUser=null;myProfile=null;render();return}
   tab="discover";render();
 }
-async function logout(){if(sb){await sb.auth.signOut()}sbUser=null;myProfile=null;dataLoaded=false;tab="discover";render()}
+async function logout(){if(sb){await sb.auth.signOut()}sbUser=null;myProfile=null;guest=false;try{localStorage.removeItem("footy_guest")}catch(e){}dataLoaded=false;tab="discover";render()}
 
 function viewDiscover(){
   var m=me();
   var cats=["全部","约球","日常","观赛"];
   var html='';
-  html+='<div class="card"><div class="chips">'+cats.map(function(c){return '<span class="chip'+(discoverCat===c?" on":"")+'" onclick="discoverCat=\''+c+'\';render()">'+c+'</span>'}).join("")+'</div>'
+  if(guest){html+='<div class="card"><p class="muted">你是游客，只能看看。注册登录后才能发动态、点赞和评论。</p><div style="height:10px"></div><button class="btn-primary" onclick="exitGuest()">去注册</button></div>'}
+  else{html+='<div class="card"><div class="chips">'+cats.map(function(c){return '<span class="chip'+(discoverCat===c?" on":"")+'" onclick="discoverCat=\''+c+'\';render()">'+c+'</span>'}).join("")+'</div>'
   +'<textarea id="p_text" placeholder="想约球？写时间、地点、缺几个人……"></textarea>'
-  +'<div class="row" style="margin-top:8px"><select id="p_cat"><option>约球</option><option>日常</option><option>观赛</option></select><button class="btn-primary" onclick="doPost()">发布</button></div></div>';
+  +'<div class="row" style="margin-top:8px"><select id="p_cat"><option>约球</option><option>日常</option><option>观赛</option></select><button class="btn-primary" onclick="doPost()">发布</button></div></div>'};
   var posts=D.posts.slice();
   if(discoverCat!=="全部")posts=posts.filter(function(p){return p.category===discoverCat});
   html+='<div class="card"><h2>动态</h2>';
@@ -254,6 +260,7 @@ function viewDiscover(){
   html+='</div>';return html;
 }
 async function doPost(){
+  if(guest){needLogin();return}
   var m=me();if(!m)return;var t=document.getElementById("p_text").value.trim();if(!t){alert("先写点内容");return}
   var cat=document.getElementById("p_cat").value;
   var res=await sb.from("posts").insert({id:uid(),author_id:m.id,author_nickname:m.nickname,category:cat,content:t});
@@ -261,6 +268,7 @@ async function doPost(){
   await loadAll();render();
 }
 async function toggleLike(postId){
+  if(guest){needLogin();return}
   var m=me();if(!m)return;
   var ex=D.likes.find(function(l){return l.post_id===postId&&l.user_id===m.id});
   if(ex){await sb.from("likes").delete().eq("id",ex.id)}
@@ -270,6 +278,7 @@ async function toggleLike(postId){
   await loadAll();render();
 }
 async function doComment(postId){
+  if(guest){needLogin();return}
   var m=me();if(!m)return;var inp=document.getElementById("c_"+postId);var t=inp.value.trim();if(!t)return;
   var res=await sb.from("comments").insert({id:uid(),post_id:postId,author_id:m.id,author_nickname:m.nickname,content:t});
   if(res.error){alert("评论失败，请重试。");return}
@@ -284,7 +293,7 @@ async function deletePost(postId){
   await loadAll();render();
 }
 function viewFriends(){
-  var m=me();var users=D.profiles.filter(function(u){return u.id!==m.id});
+  var m=me();var users=guest?D.profiles.slice():D.profiles.filter(function(u){return u.id!==m.id});
   var cities=["全部"].concat(Array.from(new Set(users.map(function(u){return u.city}).filter(Boolean))));
   var poss=["全部","前锋","中场","后卫","门将"];
   var list=users.filter(function(u){
@@ -300,20 +309,22 @@ function viewFriends(){
   html+='<div class="card"><h2>球友</h2>';
   if(!list.length){html+='<div class="empty">还没有球友</div>'}
   list.forEach(function(u){
-    var rel=D.friends.find(function(f){return f.user_id===m.id&&f.friend_id===u.id});
-    var greeted=D.greetings.some(function(g){return g.from_id===m.id&&g.to_id===u.id});
+    var rel=guest?null:D.friends.find(function(f){return f.user_id===m.id&&f.friend_id===u.id});
+    var greeted=guest?false:D.greetings.some(function(g){return g.from_id===m.id&&g.to_id===u.id});
     html+='<div class="friend"><div class="avatar">'+esc(avatarChar(u.nickname))+'</div><div class="friend-info">'
     +'<div class="friend-name">'+esc(u.nickname)+'</div>'
     +'<div class="friend-meta">'+esc([u.city,u.position,u.level,u.team].filter(Boolean).join(" · ")||"还没填资料")+'<br>'+esc(u.bio||"暂无简介")+'</div>'
-    +'<div class="friend-actions"><select onchange="setFriendStatus(\''+u.id+'\',this.value)">'
+    +(guest?'<div class="friend-actions"><button class="btn-ghost btn-small" onclick="viewProfile(\''+u.id+'\')">看主页</button></div>'
+    :'<div class="friend-actions"><select onchange="setFriendStatus(\''+u.id+'\',this.value)">'
     +["想认识","已打招呼","常一起踢"].map(function(s){return '<option'+(rel&&rel.status===s?" selected":"")+'>'+s+'</option>'}).join("")+'</select>'
     +'<button class="btn-primary btn-small" onclick="greet(\''+u.id+'\')">'+(greeted?"已打招呼":"打招呼")+'</button>'
-    +'<button class="btn-ghost btn-small" onclick="viewProfile(\''+u.id+'\')">看主页</button></div></div></div>';
+    +'<button class="btn-ghost btn-small" onclick="viewProfile(\''+u.id+'\')">看主页</button></div>')+'</div></div>';
   });
   html+='</div>';return html;
 }
 function renderFriendsOnly(){var v=document.getElementById("f_q");var pos=v?v.selectionStart:0;render();var nv=document.getElementById("f_q");if(nv){nv.focus();nv.setSelectionRange(pos,pos)}}
 async function setFriendStatus(toId,status){
+  if(guest){needLogin();return}
   var m=me();
   var ex=D.friends.find(function(x){return x.user_id===m.id&&x.friend_id===toId});
   if(ex){await sb.from("friends").update({status:status}).eq("id",ex.id)}
@@ -321,6 +332,7 @@ async function setFriendStatus(toId,status){
   await loadAll();render();
 }
 async function greet(toId){
+  if(guest){needLogin();return}
   var m=me();
   if(D.greetings.some(function(g){return g.from_id===m.id&&g.to_id===toId})){alert("已打过招呼");return}
   var res=await sb.from("greetings").insert({id:uid(),from_id:m.id,from_nickname:m.nickname,to_id:toId,message:"你好，我是 "+m.nickname+"，有空一起踢球吗？",read:false});
@@ -341,6 +353,7 @@ function viewProfile(userId){
 }
 function closeModal(){var m=document.getElementById("modal");m.innerHTML="";m.classList.add("hidden")}
 function viewMessages(){
+  if(guest){return '<div class="card"><h2>消息</h2><p class="muted">你是游客，没有消息。登录后才能收到打招呼、点赞和评论。</p><div style="height:10px"></div><button class="btn-primary" onclick="exitGuest()">去注册</button></div>'}
   var m=me();
   var items=[];
   D.greetings.forEach(function(g){if(g.to_id===m.id){var f=profileById(g.from_id)||{nickname:g.from_nickname||"球友"};items.push({ts:g.created_at,who:f.nickname,text:g.message,kind:"打招呼",unread:!g.read})}});
@@ -362,6 +375,7 @@ async function markRead(){
   await loadAll();render();
 }
 function viewMe(){
+  if(guest){return '<div class="card"><div class="profile-top"><div class="avatar" style="width:64px;height:64px;font-size:28px">游</div><div><div class="name">游客</div><div class="muted">不用注册，先看看</div></div></div><div style="height:12px"></div><p class="muted">注册登录后才能编辑主页、发动态、加球友。</p><div style="height:10px"></div><button class="btn-primary" onclick="exitGuest()">去注册</button></div>'}
   var m=me();
   var email=sbUser?sbUser.email:"";
   var html='<div class="card"><div class="profile-top"><div class="avatar" style="width:64px;height:64px;font-size:28px">'+esc(avatarChar(m.nickname))+'</div><div><div class="name">'+esc(m.nickname)+'</div><div class="muted">'+esc(email)+'</div></div></div>'
@@ -399,8 +413,8 @@ async function saveProfile(){
 async function render(){
   var main=document.getElementById("main");
   document.querySelectorAll("#nav button").forEach(function(b){b.classList.toggle("on",b.dataset.tab===tab)});
-  document.getElementById("nav").classList.toggle("hidden",!sbUser);
-  if(!sbUser){main.innerHTML=viewAuth();return}
+  document.getElementById("nav").classList.toggle("hidden",!(sbUser||guest));
+  if(!sbUser&&!guest){main.innerHTML=viewAuth();return}
   if(!dataLoaded){
     main.innerHTML='<div class="card"><p class="muted">加载中…</p></div>';
     try{await loadAll();}
@@ -428,6 +442,7 @@ async function init(){
     try{await ensureProfile();await loadAll();}
     catch(e){sbUser=null;myProfile=null;window._authMsg={kind:"err",text:e.message}}
   }
+  if(!sbUser){try{if(localStorage.getItem("footy_guest")==="1")guest=true}catch(e){}}
   render();
   if(sb&&sb.auth&&sb.auth.onAuthStateChange){
     sb.auth.onAuthStateChange(function(ev,session){
